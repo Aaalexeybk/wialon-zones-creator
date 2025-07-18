@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wialon Zones Creator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .progress { height: 30px; }
+        .progress-bar { line-height: 30px; }
+        .config-section { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Создание зон в Wialon</h1>
+        
+        <div class="config-section">
+            <h5>Конфигурация подключения</h5>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="host" class="form-label">Wialon Host</label>
+                    <input type="text" class="form-control" id="host" value="{{ default_host }}">
+                </div>
+                <div class="col-md-6">
+                    <label for="token" class="form-label">API Token</label>
+                    <input type="text" class="form-control" id="token" value="{{ default_token }}">
+                </div>
+                <div class="col-md-4">
+                    <label for="itemId" class="form-label">ID ресурса (itemId)</label>
+                    <input type="number" class="form-control" id="itemId" value="{{ default_item_id }}">
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">Загрузка CSV файла</div>
+            <div class="card-body">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="csvFile" class="form-label">Выберите CSV файл с зонами</label>
+                        <input class="form-control" type="file" id="csvFile" name="file" accept=".csv" required>
+                        <div class="form-text">Формат CSV: Name,Latitude,Longitude</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Загрузить</button>
+                </form>
+            </div>
+        </div>
+        
+        <div id="zonesInfo" class="card mb-4" style="display: none;">
+            <div class="card-header">Информация о зонах</div>
+            <div class="card-body">
+                <p>Найдено зон: <span id="zonesCount">0</span></p>
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Название</th>
+                                <th>Широта</th>
+                                <th>Долгота</th>
+                            </tr>
+                        </thead>
+                        <tbody id="zonesTableBody"></tbody>
+                    </table>
+                </div>
+                <button id="createZonesBtn" class="btn btn-success">Создать зоны в Wialon</button>
+            </div>
+        </div>
+        
+        <div id="progressSection" class="card mb-4" style="display: none;">
+            <div class="card-header">Прогресс создания зон</div>
+            <div class="card-body">
+                <div class="progress mb-3">
+                    <div id="progressBar" class="progress-bar progress-bar-striped" role="progressbar" style="width: 0%">0%</div>
+                </div>
+                <div id="resultsContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('file', document.getElementById('csvFile').files[0]);
+            
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                document.getElementById('zonesCount').textContent = data.count;
+                const tableBody = document.getElementById('zonesTableBody');
+                tableBody.innerHTML = '';
+                
+                data.zones.forEach(zone => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${zone.Name}</td>
+                        <td>${zone.Lat}</td>
+                        <td>${zone.Long}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+                
+                document.getElementById('zonesInfo').style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Произошла ошибка при загрузке файла');
+            });
+        });
+        
+        document.getElementById('createZonesBtn').addEventListener('click', function() {
+            const zones = [];
+            const rows = document.getElementById('zonesTableBody').rows;
+            const itemId = document.getElementById('itemId').value;
+            const host = document.getElementById('host').value;
+            const token = document.getElementById('token').value;
+            
+            // Валидация
+            if (!host) {
+                alert('Пожалуйста, укажите Wialon Host');
+                return;
+            }
+            if (!token) {
+                alert('Пожалуйста, укажите API Token');
+                return;
+            }
+            if (!itemId) {
+                alert('Пожалуйста, укажите ID ресурса (itemId)');
+                return;
+            }
+            
+            for (let row of rows) {
+                zones.push({
+                    Name: row.cells[0].textContent,
+                    Lat: parseFloat(row.cells[1].textContent),
+                    Long: parseFloat(row.cells[2].textContent)
+                });
+            }
+            
+            document.getElementById('zonesInfo').style.display = 'none';
+            document.getElementById('progressSection').style.display = 'block';
+            
+            fetch('/create_zones', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    zones: zones,
+                    itemId: parseInt(itemId),
+                    host: host,
+                    token: token
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultsContainer = document.getElementById('resultsContainer');
+                resultsContainer.innerHTML = '';
+                
+                data.results.forEach((result, index) => {
+                    const progress = Math.round(((index + 1) / zones.length) * 100);
+                    document.getElementById('progressBar').style.width = `${progress}%`;
+                    document.getElementById('progressBar').textContent = `${progress}%`;
+                    
+                    const alert = document.createElement('div');
+                    alert.className = `alert alert-${result.status === 'success' ? 'success' : 'danger'}`;
+                    alert.innerHTML = `
+                        <strong>${result.name}</strong>: ${result.status}
+                        ${result.message ? `<br>${result.message}` : ''}
+                        ${result.response ? `<pre>${JSON.stringify(result.response, null, 2)}</pre>` : ''}
+                    `;
+                    resultsContainer.appendChild(alert);
+                });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Произошла ошибка при создании зон');
+            });
+        });
+    </script>
+</body>
+</html>
